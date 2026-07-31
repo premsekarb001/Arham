@@ -1,0 +1,207 @@
+                1 -> {
+                    // USER PROFILE SCREEN
+                    var userApplications by remember { mutableStateOf(emptyList<ApplicationItem>()) }
+                    var isLoadingApplications by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(firebaseUser) {
+                        if (firebaseUser != null) {
+                            isLoadingApplications = true
+                            try {
+                                val snapshot = firebaseAuthManager.db.collection("users")
+                                    .document(firebaseUser!!.uid)
+                                    .collection("applications")
+                                    .get()
+                                    .await()
+                                userApplications = snapshot.documents.mapNotNull { doc ->
+                                    ApplicationItem(
+                                        id = doc.id,
+                                        universityName = doc.getString("universityName") ?: "",
+                                        courseName = doc.getString("courseName") ?: "",
+                                        status = doc.getString("status") ?: "Pending",
+                                        date = doc.getString("date") ?: ""
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                // Ignore or handle fetch error
+                            } finally {
+                                isLoadingApplications = false
+                            }
+                        } else {
+                            userApplications = emptyList()
+                        }
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        item {
+                            // Header
+                            if (firebaseUser == null) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp)
+                                ) {
+                                    Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color(0xFF64748B))
+                                    Spacer(Modifier.height(16.dp))
+                                    Text("Not signed in", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.height(16.dp))
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                if (firebaseAuthManager.signInWithGoogle()) {
+                                                    firebaseUser = firebaseAuthManager.auth.currentUser
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text("Sign in with Google")
+                                    }
+                                }
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFD1E4FF),
+                                        modifier = Modifier.size(64.dp)
+                                    ) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF001D35), modifier = Modifier.padding(16.dp))
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    Column {
+                                        Text(firebaseUser?.displayName ?: "User", fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color(0xFF001D35))
+                                        Text(firebaseUser?.email ?: "", fontSize = 14.sp, color = Color(0xFF64748B))
+                                    }
+                                }
+                            }
+                        }
+
+                        if (firebaseUser != null) {
+                            item {
+                                // DigiLocker Status Card
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically, 
+                                            horizontalArrangement = Arrangement.SpaceBetween, 
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    if (userDigiLockerVerified) Icons.Default.Verified else Icons.Outlined.Shield, 
+                                                    contentDescription = null, 
+                                                    tint = if (userDigiLockerVerified) ArhamSuccess else ArhamDanger
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("DigiLocker Status", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                            }
+                                            if (userDigiLockerVerified) {
+                                                Surface(color = Color(0xFFD1FAE5), shape = RoundedCornerShape(12.dp)) {
+                                                    Text("Verified", color = Color(0xFF065F46), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                                }
+                                            } else {
+                                                Surface(color = Color(0xFFFEE2E2), shape = RoundedCornerShape(12.dp)) {
+                                                    Text("Pending", color = Color(0xFF991B1B), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                                }
+                                            }
+                                        }
+                                        if (!userDigiLockerVerified) {
+                                            Spacer(Modifier.height(16.dp))
+                                            Button(
+                                                onClick = { 
+                                                    val intent = authManager.getAuthIntent()
+                                                    authLauncher.launch(intent)
+                                                },
+                                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = ArhamPrimary)
+                                            ) {
+                                                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("Connect DigiLocker (OAuth2)", fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            Spacer(Modifier.height(16.dp))
+                                            HorizontalDivider(color = Color(0xFFF1F5F9))
+                                            Spacer(Modifier.height(12.dp))
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                                Column {
+                                                    Text("CUET Percentile", fontSize = 12.sp, color = Color(0xFF64748B))
+                                                    Text("${"%.1f".format(userCuetScore)}%", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+                                                }
+                                                Column(horizontalAlignment = Alignment.End) {
+                                                    Text("Board Score", fontSize = 12.sp, color = Color(0xFF64748B))
+                                                    Text("92.4%", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+                                                }
+                                            }
+                                            Spacer(Modifier.height(16.dp))
+                                            Text("Simulate CUET Percentile:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF64748B))
+                                            Slider(
+                                                value = userCuetScore.toFloat(),
+                                                onValueChange = { userCuetScore = it.toDouble() },
+                                                valueRange = 70f..99.9f,
+                                                steps = 299,
+                                                modifier = Modifier.testTag("score_slider")
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                Text("Application History", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+                                Spacer(Modifier.height(2.dp))
+                            }
+
+                            if (userApplications.isEmpty() && !isLoadingApplications) {
+                                item {
+                                    Text("No applications found in Firestore.", color = Color.Gray, modifier = Modifier.padding(8.dp))
+                                }
+                            } else if (isLoadingApplications) {
+                                item {
+                                    CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+                                }
+                            } else {
+                                items(userApplications) { app ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.SpaceBetween, 
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(app.universityName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                                val statusColor = if (app.status == "Payment Pending") Color(0xFFD97706) else Color(0xFFDC2626)
+                                                val statusBg = if (app.status == "Payment Pending") Color(0xFFFEF3C7) else Color(0xFFFEE2E2)
+                                                Surface(color = statusBg, shape = RoundedCornerShape(6.dp)) {
+                                                    Text(app.status, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = statusColor, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                }
+                                            }
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(app.courseName, fontSize = 13.sp, color = Color(0xFF475569))
+                                            Spacer(Modifier.height(8.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(12.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Applied on ${app.date}", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }

@@ -1,0 +1,88 @@
+--- app/src/main/java/com/example/MainActivity.kt
++++ app/src/main/java/com/example/MainActivity.kt
+@@ -101,6 +101,11 @@
+     var selectedForComparison by remember { mutableStateOf(setOf<VacancyItem>()) }
+     var showCompareSheet by remember { mutableStateOf(false) }
+     val context = LocalContext.current
++    
++    val sharedPrefs = remember { context.getSharedPreferences("arham_prefs", android.content.Context.MODE_PRIVATE) }
++    var favoriteVacancyIds by remember {
++        mutableStateOf(sharedPrefs.getStringSet("favorite_vacancies", emptySet())?.toSet() ?: emptySet())
++    }
+ 
+     val firebaseAuthManager = remember { FirebaseAuthManager(context) }
+     var firebaseUser by remember { mutableStateOf(firebaseAuthManager.auth.currentUser) }
+@@ -616,6 +621,25 @@
+                                         isUserVerified = userDigiLockerVerified,
+                                         onClaimClick = { activeClaimVacancy = item },
+                                         isSelectedForCompare = selectedForComparison.contains(item),
++                                        isFavorite = favoriteVacancyIds.contains(item.id),
++                                        onToggleFavorite = { isFav ->
++                                            val newFavorites = if (isFav) favoriteVacancyIds + item.id else favoriteVacancyIds - item.id
++                                            favoriteVacancyIds = newFavorites
++                                            sharedPrefs.edit().putStringSet("favorite_vacancies", newFavorites).apply()
++                                            
++                                            val topic = "vacancy_${item.id}"
++                                            if (isFav) {
++                                                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic(topic)
++                                                    .addOnCompleteListener { task ->
++                                                        if (task.isSuccessful) Toast.makeText(context, "Subscribed to ${item.courseName} alerts!", Toast.LENGTH_SHORT).show()
++                                                    }
++                                            } else {
++                                                com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
++                                                    .addOnCompleteListener { task ->
++                                                        if (task.isSuccessful) Toast.makeText(context, "Unsubscribed from alerts", Toast.LENGTH_SHORT).show()
++                                                    }
++                                            }
++                                        },
+                                         onToggleCompare = { isSelected ->
+                                             if (isSelected) {
+                                                 if (selectedForComparison.size < 3) {
+@@ -1116,6 +1140,8 @@
+     isUserVerified: Boolean,
+     onClaimClick: () -> Unit,
+     isSelectedForCompare: Boolean = false,
++    isFavorite: Boolean = false,
++    onToggleFavorite: (Boolean) -> Unit = {},
+     onToggleCompare: (Boolean) -> Unit = {}
+ ) {
+     val isEligible = userScore >= vacancy.normalizedScoreRequired
+@@ -1288,27 +1314,9 @@
+                         }
+                         Spacer(Modifier.width(8.dp))
+                         
+-                        var isSubscribed by remember { mutableStateOf(false) }
+-                        val context = LocalContext.current
+-                        
+                         IconButton(
+-                            onClick = { 
+-                                isSubscribed = !isSubscribed
+-                                val topic = "vacancy_${vacancy.id}"
+-                                if (isSubscribed) {
+-                                    com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic(topic)
+-                                        .addOnCompleteListener { task ->
+-                                            var msg = "Subscribed to ${vacancy.courseName} alerts!"
+-                                            if (!task.isSuccessful) msg = "Subscription failed"
+-                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+-                                        }
+-                                } else {
+-                                    com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
+-                                        .addOnCompleteListener { task ->
+-                                            var msg = "Unsubscribed from alerts"
+-                                            if (!task.isSuccessful) msg = "Unsubscription failed"
+-                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+-                                        }
+-                                }
+-                            },
++                            onClick = { onToggleFavorite(!isFavorite) },
+                             modifier = Modifier.size(24.dp)
+                         ) {
+                             Icon(
+-                                imageVector = if (isSubscribed) Icons.Filled.NotificationsActive else Icons.Outlined.Notifications,
++                                imageVector = if (isFavorite) Icons.Filled.NotificationsActive else Icons.Outlined.Notifications,
+                                 contentDescription = "Subscribe to alerts",
+-                                tint = if (isSubscribed) ArhamPrimary else Color(0xFF64748B),
++                                tint = if (isFavorite) ArhamPrimary else Color(0xFF64748B),
+                                 modifier = Modifier.size(18.dp)
+                             )
+                         }

@@ -1,0 +1,6 @@
+{
+  "name": "Arham",
+  "description": "Cross-State College Clearing Marketplace for India using DigiLocker score verification and real-time seat allocation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

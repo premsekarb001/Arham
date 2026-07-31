@@ -1,0 +1,17 @@
+repositories {
+    mavenCentral()
+    google()
+}
+configurations {
+    testResolvable
+}
+dependencies {
+    testResolvable("com.patrykandpatrick.vico:compose-m3:1.15.0")
+    testResolvable("com.patrykandpatrick.vico:core:1.15.0")
+}
+task resolve {
+    doLast {
+        configurations.testResolvable.resolve()
+        println("SUCCESS")
+    }
+}

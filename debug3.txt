@@ -1,0 +1,1370 @@
+1  package com.example
+2  
+3  import android.os.Bundle
+4  import android.widget.Toast
+5  import androidx.activity.ComponentActivity
+6  import androidx.activity.compose.setContent
+7  import androidx.activity.enableEdgeToEdge
+8  import androidx.activity.compose.rememberLauncherForActivityResult
+9  import androidx.activity.result.contract.ActivityResultContracts
+10  import androidx.compose.animation.*
+11  import androidx.compose.foundation.background
+12  import androidx.compose.foundation.border
+13  import androidx.compose.foundation.clickable
+14  import androidx.compose.foundation.layout.*
+15  import androidx.compose.foundation.lazy.LazyColumn
+16  import androidx.compose.foundation.lazy.LazyRow
+17  import androidx.compose.foundation.lazy.items
+18  import androidx.compose.foundation.shape.CircleShape
+19  import androidx.compose.foundation.shape.RoundedCornerShape
+20  import androidx.compose.material.icons.Icons
+21  import androidx.compose.material.icons.filled.*
+22  import androidx.compose.material.icons.outlined.*
+23  import androidx.compose.material3.*
+24  import androidx.compose.runtime.*
+25  import androidx.compose.ui.Alignment
+26  import androidx.compose.ui.Modifier
+27  import androidx.compose.ui.draw.clip
+28  import androidx.compose.ui.graphics.Color
+29  import androidx.compose.ui.platform.LocalContext
+30  import androidx.compose.ui.platform.testTag
+31  import androidx.compose.ui.text.font.FontWeight
+32  import androidx.compose.ui.text.style.TextOverflow
+33  import androidx.compose.ui.unit.dp
+34  import androidx.compose.ui.unit.sp
+35  import com.example.ui.theme.*
+36  import androidx.compose.animation.core.LinearEasing
+37  import androidx.compose.animation.core.RepeatMode
+38  import androidx.compose.animation.core.animateFloat
+39  import androidx.compose.animation.core.infiniteRepeatable
+40  import androidx.compose.animation.core.rememberInfiniteTransition
+41  import androidx.compose.animation.core.tween
+42  import kotlin.random.Random
+43  import com.patrykandpatrick.vico.compose.chart.Chart
+44  import com.patrykandpatrick.vico.compose.chart.line.lineChart
+45  import com.patrykandpatrick.vico.compose.chart.column.columnChart
+46  import com.patrykandpatrick.vico.core.entry.entryModelOf
+47  import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
+48  import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
+49  import kotlinx.coroutines.launch
+50  import kotlinx.coroutines.tasks.await
+51  
+52  data class VacancyItem(
+53      val id: String,
+54      val universityName: String,
+55      val locationState: String,
+56      val city: String,
+57      val courseName: String,
+58      val stream: String,
+59      val remainingSeats: Int,
+60      val totalSeats: Int,
+61      val cutOffScore: Double,
+62      val scoreExamType: String,
+63      val normalizedScoreRequired: Double,
+64      val annualFeeInLakhs: Double,
+65      val isDigiLockerVerified: Boolean
+66  )
+67  
+68  data class ApplicationItem(
+69      val id: String,
+70      val universityName: String,
+71      val courseName: String,
+72      val status: String,
+73      val date: String
+74  )
+75  
+76 1 class MainActivity : ComponentActivity() {
+77 2     override fun onCreate(savedInstanceState: Bundle?) {
+78 2         super.onCreate(savedInstanceState)
+79 2         enableEdgeToEdge()
+80 3         setContent {
+81 4             MyApplicationTheme {
+82 4                 ArhamApp()
+83 3             }
+84 2         }
+85 1     }
+86 0 }
+87 0 
+88 0 @OptIn(ExperimentalMaterial3Api::class)
+89 0 @Composable
+90 1 fun ArhamApp() {
+91 1     var selectedTab by remember { mutableIntStateOf(0) }
+92 1     var searchQuery by remember { mutableStateOf("") }
+93 1     var selectedStateFilter by remember { mutableStateOf("All") }
+94 1     var selectedStreamFilter by remember { mutableStateOf("All") }
+95 1     var userDigiLockerVerified by remember { mutableStateOf(false) }
+96 1     var userCuetScore by remember { mutableDoubleStateOf(94.5) }
+97 1     var activeClaimVacancy by remember { mutableStateOf<VacancyItem?>(null) }
+98 1     var selectedForComparison by remember { mutableStateOf(setOf<VacancyItem>()) }
+99 1     var showCompareSheet by remember { mutableStateOf(false) }
+100 1     val context = LocalContext.current
+101 1     val firebaseAuthManager = remember { FirebaseAuthManager(context) }
+102 1     var firebaseUser by remember { mutableStateOf(firebaseAuthManager.auth.currentUser) }
+103 1     val scope = rememberCoroutineScope()
+104 1 
+105 1     val permissionLauncher = rememberLauncherForActivityResult(
+106 1         contract = ActivityResultContracts.RequestPermission()
+107 2     ) { isGranted ->
+108 3         if (isGranted) {
+109 3             Toast.makeText(context, "Notifications enabled", Toast.LENGTH_SHORT).show()
+110 2         }
+111 1     }
+112 1 
+113 2     LaunchedEffect(Unit) {
+114 3         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+115 3             permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+116 2         }
+117 1     }
+118 1 
+119 1     val authManager = remember { DigiLockerAuthManager(context) }
+120 1     
+121 1     val authLauncher = rememberLauncherForActivityResult(
+122 1         contract = ActivityResultContracts.StartActivityForResult()
+123 2     ) { result ->
+124 2         // In a real app we'd exchange the authorization code for a token here.
+125 2         // For the simulation, we'll mark it verified anyway.
+126 2         userDigiLockerVerified = true
+127 2         Toast.makeText(context, "DigiLocker Auth Success (Simulated)", Toast.LENGTH_SHORT).show()
+128 1     }
+129 1 
+130 2     val sampleVacancies = remember {
+131 2         listOf(
+132 2             VacancyItem(
+133 2                 id = "vac_101",
+134 2                 universityName = "Manipal Institute of Technology",
+135 2                 locationState = "Karnataka",
+136 2                 city = "Manipal",
+137 2                 courseName = "B.Tech Computer Science Engineering",
+138 2                 stream = "Engineering",
+139 2                 remainingSeats = 3,
+140 2                 totalSeats = 180,
+141 2                 cutOffScore = 92.0,
+142 2                 scoreExamType = "MET / CUET",
+143 2                 normalizedScoreRequired = 91.5,
+144 2                 annualFeeInLakhs = 4.2,
+145 2                 isDigiLockerVerified = true
+146 2             ),
+147 2             VacancyItem(
+148 2                 id = "vac_102",
+149 2                 universityName = "SRM Institute of Science & Tech",
+150 2                 locationState = "Tamil Nadu",
+151 2                 city = "Kattankulathur",
+152 2                 courseName = "B.Tech Artificial Intelligence & ML",
+153 2                 stream = "Engineering",
+154 2                 remainingSeats = 4,
+155 2                 totalSeats = 240,
+156 2                 cutOffScore = 88.5,
+157 2                 scoreExamType = "JEE Main / CUET",
+158 2                 normalizedScoreRequired = 88.0,
+159 2                 annualFeeInLakhs = 3.8,
+160 2                 isDigiLockerVerified = true
+161 2             ),
+162 2             VacancyItem(
+163 2                 id = "vac_103",
+164 2                 universityName = "Kalinga Institute of Industrial Tech (KIIT)",
+165 2                 locationState = "Odisha",
+166 2                 city = "Bhubaneswar",
+167 2                 courseName = "B.Tech Electronics & Comm. Eng",
+168 2                 stream = "Engineering",
+169 2                 remainingSeats = 12,
+170 2                 totalSeats = 150,
+171 2                 cutOffScore = 85.0,
+172 2                 scoreExamType = "CUET / KIITEE",
+173 2                 normalizedScoreRequired = 84.0,
+174 2                 annualFeeInLakhs = 3.5,
+175 2                 isDigiLockerVerified = true
+176 2             ),
+177 2             VacancyItem(
+178 2                 id = "vac_104",
+179 2                 universityName = "Symbiosis International University",
+180 2                 locationState = "Maharashtra",
+181 2                 city = "Pune",
+182 2                 courseName = "B.B.A Finance & International Business",
+183 2                 stream = "Management",
+184 2                 remainingSeats = 2,
+185 2                 totalSeats = 120,
+186 2                 cutOffScore = 93.0,
+187 2                 scoreExamType = "SET / CUET UG",
+188 2                 normalizedScoreRequired = 92.0,
+189 2                 annualFeeInLakhs = 3.9,
+190 2                 isDigiLockerVerified = true
+191 2             ),
+192 2             VacancyItem(
+193 2                 id = "vac_105",
+194 2                 universityName = "Kasturba Medical College (KMC)",
+195 2                 locationState = "Karnataka",
+196 2                 city = "Mangalore",
+197 2                 courseName = "M.B.B.S (Management Clearing)",
+198 2                 stream = "Medical",
+199 2                 remainingSeats = 1,
+200 2                 totalSeats = 250,
+201 2                 cutOffScore = 96.5,
+202 2                 scoreExamType = "NEET UG",
+203 2                 normalizedScoreRequired = 96.0,
+204 2                 annualFeeInLakhs = 14.5,
+205 2                 isDigiLockerVerified = true
+206 2             ),
+207 2             VacancyItem(
+208 2                 id = "vac_106",
+209 2                 universityName = "Thapar Institute of Eng. & Tech",
+210 2                 locationState = "Punjab",
+211 2                 city = "Patiala",
+212 2                 courseName = "B.Tech Data Science & Engineering",
+213 2                 stream = "Engineering",
+214 2                 remainingSeats = 8,
+215 2                 totalSeats = 120,
+216 2                 cutOffScore = 90.0,
+217 2                 scoreExamType = "JEE Main / Board Score",
+218 2                 normalizedScoreRequired = 89.5,
+219 2                 annualFeeInLakhs = 4.1,
+220 2                 isDigiLockerVerified = true
+221 2             )
+222 2         )
+223 1     }
+224 1 
+225 1     val statesList = listOf("All", "Karnataka", "Tamil Nadu", "Maharashtra", "Punjab", "Odisha")
+226 1     val streamsList = listOf("All", "Engineering", "Management", "Medical")
+227 1 
+228 2     val filteredVacancies = sampleVacancies.filter { vac ->
+229 2         val matchesSearch = vac.universityName.contains(searchQuery, ignoreCase = true) ||
+230 2                 vac.courseName.contains(searchQuery, ignoreCase = true) ||
+231 2                 vac.city.contains(searchQuery, ignoreCase = true)
+232 2         val matchesState = selectedStateFilter == "All" || vac.locationState.equals(selectedStateFilter, ignoreCase = true)
+233 2         val matchesStream = selectedStreamFilter == "All" || vac.stream.equals(selectedStreamFilter, ignoreCase = true)
+234 2         matchesSearch && matchesState && matchesStream
+235 1     }
+236 1 
+237 1     Scaffold(
+238 1         modifier = Modifier
+239 1             .fillMaxSize()
+240 1             .testTag("arham_scaffold"),
+241 2         floatingActionButton = {
+242 3             if (selectedTab == 0 && selectedForComparison.isNotEmpty()) {
+243 3                 ExtendedFloatingActionButton(
+244 3                     onClick = { showCompareSheet = true },
+245 3                     icon = { Icon(Icons.Default.CompareArrows, "Compare") },
+246 3                     text = { Text("Compare (${selectedForComparison.size}/3)") },
+247 3                     containerColor = ArhamPrimary,
+248 3                     contentColor = Color.White
+249 3                 )
+250 2             }
+251 1         },
+252 2         topBar = {
+253 2             TopAppBar(
+254 3                 title = {
+255 3                     Row(
+256 3                         modifier = Modifier.fillMaxWidth(),
+257 3                         horizontalArrangement = Arrangement.SpaceBetween,
+258 3                         verticalAlignment = Alignment.CenterVertically
+259 4                     ) {
+260 5                         Column {
+261 5                             Text(
+262 5                                 "Arham",
+263 5                                 fontWeight = FontWeight.Bold,
+264 5                                 fontSize = 22.sp,
+265 5                                 color = Color(0xFF001D35)
+266 5                             )
+267 5                             Text(
+268 5                                 "RIGHTFUL MERIT",
+269 5                                 fontSize = 10.sp,
+270 5                                 fontWeight = FontWeight.Bold,
+271 5                                 color = Color(0xFF0061A4),
+272 5                                 letterSpacing = 1.5.sp
+273 5                             )
+274 4                         }
+275 3                     }
+276 2                 },
+277 3                 actions = {
+278 3                     IconButton(
+279 4                         onClick = {
+280 4                             userDigiLockerVerified = !userDigiLockerVerified
+281 4                             val status = if (userDigiLockerVerified) "DigiLocker Verified" else "Unverified"
+282 4                             Toast.makeText(context, "DigiLocker Status: $status", Toast.LENGTH_SHORT).show()
+283 3                         },
+284 3                         modifier = Modifier.testTag("digilocker_toggle_button")
+285 4                     ) {
+286 4                         Icon(
+287 4                             imageVector = if (userDigiLockerVerified) Icons.Filled.Verified else Icons.Outlined.Shield,
+288 4                             contentDescription = "DigiLocker Verification",
+289 4                             tint = if (userDigiLockerVerified) ArhamSuccess else MaterialTheme.colorScheme.onSurfaceVariant
+290 4                         )
+291 3                     }
+292 2                 },
+293 2                 colors = TopAppBarDefaults.topAppBarColors(
+294 2                     containerColor = Color(0xFFF7F9FC)
+295 2                 )
+296 2             )
+297 1         },
+298 2         bottomBar = {
+299 2             NavigationBar(
+300 2                 containerColor = Color(0xFFF2F5F9),
+301 2                 tonalElevation = 4.dp
+302 3             ) {
+303 3                 NavigationBarItem(
+304 3                     selected = selectedTab == 0,
+305 3                     onClick = { selectedTab = 0 },
+306 3                     icon = { Icon(Icons.Default.GridView, contentDescription = "Vacancies") },
+307 3                     label = { Text("Feed", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal, fontSize = 10.sp) },
+308 3                     colors = NavigationBarItemDefaults.colors(
+309 3                         indicatorColor = Color(0xFFD1E4FF),
+310 3                         selectedIconColor = Color(0xFF001D35),
+311 3                         selectedTextColor = Color(0xFF001D35),
+312 3                         unselectedIconColor = Color(0xFF64748B),
+313 3                         unselectedTextColor = Color(0xFF64748B)
+314 3                     ),
+315 3                     modifier = Modifier.testTag("nav_vacancies")
+316 3                 )
+317 3                 NavigationBarItem(
+318 3                     selected = selectedTab == 1,
+319 3                     onClick = { selectedTab = 1 },
+320 3                     icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
+321 3                     label = { Text("Profile", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal, fontSize = 10.sp) },
+322 3                     colors = NavigationBarItemDefaults.colors(
+323 3                         indicatorColor = Color(0xFFD1E4FF),
+324 3                         selectedIconColor = Color(0xFF001D35),
+325 3                         selectedTextColor = Color(0xFF001D35),
+326 3                         unselectedIconColor = Color(0xFF64748B),
+327 3                         unselectedTextColor = Color(0xFF64748B)
+328 3                     ),
+329 3                     modifier = Modifier.testTag("nav_profile")
+330 3                 )
+331 3                 NavigationBarItem(
+332 3                     selected = selectedTab == 2,
+333 3                     onClick = { selectedTab = 2 },
+334 3                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+335 3                     label = { Text("Settings", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal, fontSize = 10.sp) },
+336 3                     colors = NavigationBarItemDefaults.colors(
+337 3                         indicatorColor = Color(0xFFD1E4FF),
+338 3                         selectedIconColor = Color(0xFF001D35),
+339 3                         selectedTextColor = Color(0xFF001D35),
+340 3                         unselectedIconColor = Color(0xFF64748B),
+341 3                         unselectedTextColor = Color(0xFF64748B)
+342 3                     ),
+343 3                     modifier = Modifier.testTag("nav_settings")
+344 3                 )
+345 3                 NavigationBarItem(
+346 3                     selected = selectedTab == 3,
+347 3                     onClick = { selectedTab = 3 },
+348 3                     icon = { Icon(Icons.Default.Insights, contentDescription = "Dashboard") },
+349 3                     label = { Text("Dashboard", fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal, fontSize = 10.sp) },
+350 3                     colors = NavigationBarItemDefaults.colors(
+351 3                         indicatorColor = Color(0xFFD1E4FF),
+352 3                         selectedIconColor = Color(0xFF001D35),
+353 3                         selectedTextColor = Color(0xFF001D35),
+354 3                         unselectedIconColor = Color(0xFF64748B),
+355 3                         unselectedTextColor = Color(0xFF64748B)
+356 3                     ),
+357 3                     modifier = Modifier.testTag("nav_dashboard")
+358 3                 )
+359 2             }
+360 1         }
+361 2     ) { innerPadding ->
+362 2         Box(
+363 2             modifier = Modifier
+364 2                 .fillMaxSize()
+365 2                 .padding(innerPadding)
+366 2                 .background(Color(0xFFF7F9FC))
+367 3         ) {
+368 4             when (selectedTab) {
+369 5                 0 -> {
+370 5                     // LIVE VACANCY FEED SCREEN
+371 5                     Column(
+372 5                         modifier = Modifier
+373 5                             .fillMaxSize()
+374 5                             .padding(horizontal = 16.dp)
+375 6                     ) {
+376 6                         Spacer(Modifier.height(4.dp))
+377 6                         // DigiLocker Status Header
+378 6                         Card(
+379 6                             colors = CardDefaults.cardColors(
+380 6                                 containerColor = if (userDigiLockerVerified)
+381 6                                     Color(0xFFECFDF5) else Color(0xFFFEF2F2)
+382 6                             ),
+383 6                             shape = RoundedCornerShape(16.dp),
+384 6                             modifier = Modifier
+385 6                                 .fillMaxWidth()
+386 6                                 .padding(bottom = 12.dp)
+387 7                         ) {
+388 7                             Row(
+389 7                                 modifier = Modifier
+390 7                                     .padding(12.dp)
+391 7                                     .fillMaxWidth(),
+392 7                                 verticalAlignment = Alignment.CenterVertically
+393 8                             ) {
+394 8                                 Icon(
+395 8                                     imageVector = if (userDigiLockerVerified) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+396 8                                     contentDescription = null,
+397 8                                     tint = if (userDigiLockerVerified) ArhamSuccess else ArhamDanger,
+398 8                                     modifier = Modifier.size(24.dp)
+399 8                                 )
+400 8                                 Spacer(Modifier.width(10.dp))
+401 9                                 Column(modifier = Modifier.weight(1f)) {
+402 9                                     Text(
+403 9                                         text = if (userDigiLockerVerified) "DigiLocker Scores Verified" else "DigiLocker Verification Pending",
+404 9                                         fontWeight = FontWeight.Bold,
+405 9                                         fontSize = 13.sp,
+406 9                                         color = if (userDigiLockerVerified) Color(0xFF065F46) else Color(0xFF991B1B)
+407 9                                     )
+408 9                                     Text(
+409 9                                         text = if (userDigiLockerVerified) "CUET: $userCuetScore percentile • 12th Board: 92.4%" else "Verify scores to unlock 1-click seat locks",
+410 9                                         fontSize = 11.sp,
+411 9                                         color = if (userDigiLockerVerified) Color(0xFF047857) else Color(0xFFB91C1C)
+412 9                                     )
+413 8                                 }
+414 9                                 if (!userDigiLockerVerified) {
+415 9                                     Button(
+416 10                                         onClick = { 
+417 10                                             val intent = authManager.getAuthIntent()
+418 10                                             authLauncher.launch(intent)
+419 9                                         },
+420 9                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+421 9                                         shape = RoundedCornerShape(8.dp),
+422 9                                         modifier = Modifier.testTag("verify_now_button")
+423 10                                     ) {
+424 10                                         Text("Verify via AppAuth", fontSize = 12.sp)
+425 9                                     }
+426 8                                 }
+427 7                             }
+428 6                         }
+429 6 
+430 6                         // Search Bar (Material 3 Pill Search Bar)
+431 6                         Surface(
+432 6                             shape = CircleShape,
+433 6                             color = Color.White,
+434 6                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+435 6                             shadowElevation = 1.dp,
+436 6                             modifier = Modifier.fillMaxWidth()
+437 7                         ) {
+438 7                             Row(
+439 7                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+440 7                                 verticalAlignment = Alignment.CenterVertically
+441 8                             ) {
+442 8                                 Icon(
+443 8                                     Icons.Default.Search,
+444 8                                     contentDescription = null,
+445 8                                     tint = Color(0xFF94A3B8),
+446 8                                     modifier = Modifier.size(20.dp)
+447 8                                 )
+448 8                                 Spacer(Modifier.width(8.dp))
+449 8                                 TextField(
+450 8                                     value = searchQuery,
+451 8                                     onValueChange = { searchQuery = it },
+452 8                                     placeholder = { Text("Search colleges or courses...", color = Color(0xFF94A3B8), fontSize = 14.sp) },
+453 8                                     colors = TextFieldDefaults.colors(
+454 8                                         focusedContainerColor = Color.Transparent,
+455 8                                         unfocusedContainerColor = Color.Transparent,
+456 8                                         disabledContainerColor = Color.Transparent,
+457 8                                         focusedIndicatorColor = Color.Transparent,
+458 8                                         unfocusedIndicatorColor = Color.Transparent
+459 8                                     ),
+460 8                                     singleLine = true,
+461 8                                     modifier = Modifier
+462 8                                         .weight(1f)
+463 8                                         .testTag("search_bar")
+464 8                                 )
+465 9                                 if (searchQuery.isNotEmpty()) {
+466 10                                     IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+467 10                                         Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF64748B))
+468 9                                     }
+469 8                                 }
+470 7                             }
+471 6                         }
+472 6 
+473 6                         Spacer(Modifier.height(12.dp))
+474 6 
+475 6                         // State Filter Chips
+476 6                         Text("STATE FILTER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
+477 6                         LazyRow(
+478 6                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+479 6                             modifier = Modifier.padding(vertical = 6.dp)
+480 7                         ) {
+481 8                             items(statesList) { state ->
+482 8                                 val selected = selectedStateFilter == state
+483 8                                 Surface(
+484 8                                     shape = RoundedCornerShape(12.dp),
+485 8                                     color = if (selected) Color(0xFFD1E4FF) else Color.White,
+486 8                                     border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+487 8                                     modifier = Modifier
+488 8                                         .clickable { selectedStateFilter = state }
+489 8                                         .testTag("filter_state_$state")
+490 9                                 ) {
+491 9                                     Row(
+492 9                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+493 9                                         verticalAlignment = Alignment.CenterVertically
+494 10                                     ) {
+495 11                                         if (selected) {
+496 11                                             Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF001D35), modifier = Modifier.size(14.dp))
+497 11                                             Spacer(Modifier.width(4.dp))
+498 10                                         }
+499 10                                         Text(
+500 10                                             state,
+501 10                                             fontSize = 12.sp,
+502 10                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+503 10                                             color = if (selected) Color(0xFF001D35) else Color(0xFF475569)
+504 10                                         )
+505 9                                     }
+506 8                                 }
+507 7                             }
+508 6                         }
+509 6 
+510 6                         // Stream Filter Chips
+511 6                         Text("STREAM FILTER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 1.sp)
+512 6                         LazyRow(
+513 6                             horizontalArrangement = Arrangement.spacedBy(8.dp),
+514 6                             modifier = Modifier.padding(vertical = 4.dp)
+515 7                         ) {
+516 8                             items(streamsList) { stream ->
+517 8                                 val selected = selectedStreamFilter == stream
+518 8                                 Surface(
+519 8                                     shape = RoundedCornerShape(12.dp),
+520 8                                     color = if (selected) Color(0xFFD1E4FF) else Color.White,
+521 8                                     border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+522 8                                     modifier = Modifier
+523 8                                         .clickable { selectedStreamFilter = stream }
+524 8                                         .testTag("filter_stream_$stream")
+525 9                                 ) {
+526 9                                     Row(
+527 9                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+528 9                                         verticalAlignment = Alignment.CenterVertically
+529 10                                     ) {
+530 11                                         if (selected) {
+531 11                                             Icon(Icons.Default.Check, contentDescription = null, tint = Color(0xFF001D35), modifier = Modifier.size(14.dp))
+532 11                                             Spacer(Modifier.width(4.dp))
+533 10                                         }
+534 10                                         Text(
+535 10                                             stream,
+536 10                                             fontSize = 12.sp,
+537 10                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+538 10                                             color = if (selected) Color(0xFF001D35) else Color(0xFF475569)
+539 10                                         )
+540 9                                     }
+541 8                                 }
+542 7                             }
+543 6                         }
+544 6 
+545 6                         Spacer(Modifier.height(10.dp))
+546 6 
+547 6                         // Results Header
+548 6                         Row(
+549 6                             modifier = Modifier.fillMaxWidth(),
+550 6                             horizontalArrangement = Arrangement.SpaceBetween,
+551 6                             verticalAlignment = Alignment.CenterVertically
+552 7                         ) {
+553 7                             Text(
+554 7                                 "LIVE VACANCY FEED (${filteredVacancies.size})",
+555 7                                 fontWeight = FontWeight.Bold,
+556 7                                 fontSize = 11.sp,
+557 7                                 color = Color(0xFF64748B),
+558 7                                 letterSpacing = 1.sp
+559 7                             )
+560 7                             Surface(
+561 7                                 shape = RoundedCornerShape(12.dp),
+562 7                                 color = Color(0xFFF0FDF4)
+563 8                             ) {
+564 8                                 Row(
+565 8                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+566 8                                     verticalAlignment = Alignment.CenterVertically
+567 9                                 ) {
+568 9                                     Box(
+569 9                                         modifier = Modifier
+570 9                                             .size(6.dp)
+571 9                                             .clip(CircleShape)
+572 9                                             .background(ArhamSuccess)
+573 9                                     )
+574 9                                     Spacer(Modifier.width(4.dp))
+575 9                                     Text("REAL-TIME", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ArhamSuccess)
+576 8                                 }
+577 7                             }
+578 6                         }
+579 6 
+580 6                         Spacer(Modifier.height(8.dp))
+581 6 
+582 6                         // Vacancies List
+583 7                         if (filteredVacancies.isEmpty()) {
+584 7                             Box(
+585 7                                 modifier = Modifier
+586 7                                     .fillMaxWidth()
+587 7                                     .weight(1f),
+588 7                                 contentAlignment = Alignment.Center
+589 8                             ) {
+590 9                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
+591 9                                     Icon(
+592 9                                         Icons.Default.FilterList,
+593 9                                         contentDescription = null,
+594 9                                         modifier = Modifier.size(48.dp),
+595 9                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
+596 9                                     )
+597 9                                     Spacer(Modifier.height(8.dp))
+598 9                                     Text("No vacant seats found matching your filter.")
+599 8                                 }
+600 7                             }
+601 7                         } else {
+602 7                             LazyColumn(
+603 7                                 verticalArrangement = Arrangement.spacedBy(12.dp),
+604 7                                 modifier = Modifier
+605 7                                     .fillMaxWidth()
+606 7                                     .weight(1f)
+607 7                                     .testTag("vacancies_list")
+608 8                             ) {
+609 9                                 items(filteredVacancies, key = { it.id }) { item ->
+610 9                                     VacancyCardItem(
+611 9                                         vacancy = item,
+612 9                                         userScore = userCuetScore,
+613 9                                         isUserVerified = userDigiLockerVerified,
+614 9                                         onClaimClick = { activeClaimVacancy = item },
+615 9                                         isSelectedForCompare = selectedForComparison.contains(item),
+616 10                                         onToggleCompare = { isSelected ->
+617 11                                             if (isSelected) {
+618 12                                                 if (selectedForComparison.size < 3) {
+619 12                                                     selectedForComparison = selectedForComparison + item
+620 12                                                 } else {
+621 12                                                     Toast.makeText(context, "You can only compare up to 3 colleges", Toast.LENGTH_SHORT).show()
+622 11                                                 }
+623 11                                             } else {
+624 11                                                 selectedForComparison = selectedForComparison - item
+625 10                                             }
+626 9                                         }
+627 9                                     )
+628 8                                 }
+629 8                                 item { Spacer(Modifier.height(16.dp)) }
+630 7                             }
+631 6                         }
+632 5                     }
+633 4                 }
+634 5                 1 -> {
+635 5                     // USER PROFILE SCREEN
+636 5                     var userApplications by remember { mutableStateOf(emptyList<ApplicationItem>()) }
+637 5                     var isLoadingApplications by remember { mutableStateOf(false) }
+638 5 
+639 6                     LaunchedEffect(firebaseUser) {
+640 7                         if (firebaseUser != null) {
+641 7                             isLoadingApplications = true
+642 8                             try {
+643 8                                 val snapshot = firebaseAuthManager.db.collection("users")
+644 8                                     .document(firebaseUser!!.uid)
+645 8                                     .collection("applications")
+646 8                                     .get()
+647 8                                     .await()
+648 9                                 userApplications = snapshot.documents.mapNotNull { doc ->
+649 9                                     ApplicationItem(
+650 9                                         id = doc.id,
+651 9                                         universityName = doc.getString("universityName") ?: "",
+652 9                                         courseName = doc.getString("courseName") ?: "",
+653 9                                         status = doc.getString("status") ?: "Pending",
+654 9                                         date = doc.getString("date") ?: ""
+655 9                                     )
+656 8                                 }
+657 8                             } catch (e: Exception) {
+658 8                                 // Ignore or handle fetch error
+659 8                             } finally {
+660 8                                 isLoadingApplications = false
+661 7                             }
+662 7                         } else {
+663 7                             userApplications = emptyList()
+664 6                         }
+665 5                     }
+666 5 
+667 5                     LazyColumn(
+668 5                         modifier = Modifier
+669 5                             .fillMaxSize()
+670 5                             .padding(16.dp),
+671 5                         verticalArrangement = Arrangement.spacedBy(16.dp)
+672 6                     ) {
+673 7                         item {
+674 7                             // Header
+675 8                             if (firebaseUser == null) {
+676 8                                 Column(
+677 8                                     horizontalAlignment = Alignment.CenterHorizontally,
+678 8                                     modifier = Modifier.fillMaxWidth().padding(32.dp)
+679 9                                 ) {
+680 9                                     Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color(0xFF64748B))
+681 9                                     Spacer(Modifier.height(16.dp))
+682 9                                     Text("Not signed in", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+683 9                                     Spacer(Modifier.height(16.dp))
+684 9                                     Button(
+685 10                                         onClick = {
+686 11                                             scope.launch {
+687 12                                                 if (firebaseAuthManager.signInWithGoogle()) {
+688 12                                                     firebaseUser = firebaseAuthManager.auth.currentUser
+689 11                                                 }
+690 10                                             }
+691 9                                         }
+692 10                                     ) {
+693 10                                         Text("Sign in with Google")
+694 9                                     }
+695 8                                 }
+696 8                             } else {
+697 9                                 Row(verticalAlignment = Alignment.CenterVertically) {
+698 9                                     Surface(
+699 9                                         shape = CircleShape,
+700 9                                         color = Color(0xFFD1E4FF),
+701 9                                         modifier = Modifier.size(64.dp)
+702 10                                     ) {
+703 10                                         Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF001D35), modifier = Modifier.padding(16.dp))
+704 9                                     }
+705 9                                     Spacer(Modifier.width(16.dp))
+706 10                                     Column {
+707 10                                         Text(firebaseUser?.displayName ?: "User", fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color(0xFF001D35))
+708 10                                         Text(firebaseUser?.email ?: "", fontSize = 14.sp, color = Color(0xFF64748B))
+709 9                                     }
+710 8                                 }
+711 7                             }
+712 6                         }
+713 6 
+714 7                         if (firebaseUser != null) {
+715 8                             item {
+716 8                                 // DigiLocker Status Card
+717 8                                 Card(
+718 8                                     colors = CardDefaults.cardColors(containerColor = Color.White),
+719 8                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+720 8                                     shape = RoundedCornerShape(16.dp),
+721 8                                     modifier = Modifier.fillMaxWidth()
+722 9                                 ) {
+723 10                                     Column(modifier = Modifier.padding(16.dp)) {
+724 10                                         Row(
+725 10                                             verticalAlignment = Alignment.CenterVertically, 
+726 10                                             horizontalArrangement = Arrangement.SpaceBetween, 
+727 10                                             modifier = Modifier.fillMaxWidth()
+728 11                                         ) {
+729 12                                             Row(verticalAlignment = Alignment.CenterVertically) {
+730 12                                                 Icon(
+731 12                                                     if (userDigiLockerVerified) Icons.Default.Verified else Icons.Outlined.Shield, 
+732 12                                                     contentDescription = null, 
+733 12                                                     tint = if (userDigiLockerVerified) ArhamSuccess else ArhamDanger
+734 12                                                 )
+735 12                                                 Spacer(Modifier.width(8.dp))
+736 12                                                 Text("DigiLocker Status", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+737 11                                             }
+738 12                                             if (userDigiLockerVerified) {
+739 13                                                 Surface(color = Color(0xFFD1FAE5), shape = RoundedCornerShape(12.dp)) {
+740 13                                                     Text("Verified", color = Color(0xFF065F46), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+741 12                                                 }
+742 12                                             } else {
+743 13                                                 Surface(color = Color(0xFFFEE2E2), shape = RoundedCornerShape(12.dp)) {
+744 13                                                     Text("Pending", color = Color(0xFF991B1B), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+745 12                                                 }
+746 11                                             }
+747 10                                         }
+748 11                                         if (!userDigiLockerVerified) {
+749 11                                             Spacer(Modifier.height(16.dp))
+750 11                                             Button(
+751 12                                                 onClick = { 
+752 12                                                     val intent = authManager.getAuthIntent()
+753 12                                                     authLauncher.launch(intent)
+754 11                                                 },
+755 11                                                 modifier = Modifier.fillMaxWidth().height(56.dp),
+756 11                                                 shape = RoundedCornerShape(12.dp),
+757 11                                                 colors = ButtonDefaults.buttonColors(containerColor = ArhamPrimary)
+758 12                                             ) {
+759 12                                                 Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+760 12                                                 Spacer(Modifier.width(8.dp))
+761 12                                                 Text("Connect DigiLocker (OAuth2)", fontWeight = FontWeight.Bold)
+762 11                                             }
+763 11                                         } else {
+764 11                                             Spacer(Modifier.height(16.dp))
+765 11                                             HorizontalDivider(color = Color(0xFFF1F5F9))
+766 11                                             Spacer(Modifier.height(12.dp))
+767 12                                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+768 13                                                 Column {
+769 13                                                     Text("CUET Percentile", fontSize = 12.sp, color = Color(0xFF64748B))
+770 13                                                     Text("${"%.1f".format(userCuetScore)}%", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+771 12                                                 }
+772 13                                                 Column(horizontalAlignment = Alignment.End) {
+773 13                                                     Text("Board Score", fontSize = 12.sp, color = Color(0xFF64748B))
+774 13                                                     Text("92.4%", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+775 12                                                 }
+776 11                                             }
+777 11                                             Spacer(Modifier.height(16.dp))
+778 11                                             Text("Simulate CUET Percentile:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF64748B))
+779 11                                             Slider(
+780 11                                                 value = userCuetScore.toFloat(),
+781 11                                                 onValueChange = { userCuetScore = it.toDouble() },
+782 11                                                 valueRange = 70f..99.9f,
+783 11                                                 steps = 299,
+784 11                                                 modifier = Modifier.testTag("score_slider")
+785 11                                             )
+786 10                                         }
+787 9                                     }
+788 8                                 }
+789 7                             }
+790 7 
+791 8                             item {
+792 8                                 Spacer(Modifier.height(8.dp))
+793 8                                 Text("Application History", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF001D35))
+794 8                                 Spacer(Modifier.height(2.dp))
+795 7                             }
+796 7 
+797 8                             if (userApplications.isEmpty() && !isLoadingApplications) {
+798 9                                 item {
+799 9                                     Text("No applications found in Firestore.", color = Color.Gray, modifier = Modifier.padding(8.dp))
+800 8                                 }
+801 8                             } else if (isLoadingApplications) {
+802 9                                 item {
+803 9                                     CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+804 8                                 }
+805 8                             } else {
+806 9                                 items(userApplications) { app ->
+807 9                                     Card(
+808 9                                         colors = CardDefaults.cardColors(containerColor = Color.White),
+809 9                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+810 9                                         shape = RoundedCornerShape(12.dp),
+811 9                                         modifier = Modifier.fillMaxWidth()
+812 10                                     ) {
+813 11                                         Column(modifier = Modifier.padding(16.dp)) {
+814 11                                             Row(
+815 11                                                 horizontalArrangement = Arrangement.SpaceBetween, 
+816 11                                                 modifier = Modifier.fillMaxWidth(),
+817 11                                                 verticalAlignment = Alignment.CenterVertically
+818 12                                             ) {
+819 12                                                 Text(app.universityName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+820 12                                                 val statusColor = if (app.status == "Payment Pending") Color(0xFFD97706) else Color(0xFFDC2626)
+821 12                                                 val statusBg = if (app.status == "Payment Pending") Color(0xFFFEF3C7) else Color(0xFFFEE2E2)
+822 13                                                 Surface(color = statusBg, shape = RoundedCornerShape(6.dp)) {
+823 13                                                     Text(app.status, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = statusColor, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+824 12                                                 }
+825 11                                             }
+826 11                                             Spacer(Modifier.height(4.dp))
+827 11                                             Text(app.courseName, fontSize = 13.sp, color = Color(0xFF475569))
+828 11                                             Spacer(Modifier.height(8.dp))
+829 12                                             Row(verticalAlignment = Alignment.CenterVertically) {
+830 12                                                 Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(12.dp))
+831 12                                                 Spacer(Modifier.width(4.dp))
+832 12                                                 Text("Applied on ${app.date}", fontSize = 11.sp, color = Color(0xFF94A3B8))
+833 11                                             }
+834 10                                         }
+835 9                                     }
+836 8                                 }
+837 7                 }
+838 6                     }
+839 5                 }
+840 4                 }
+841 5                 2 -> {
+842 5                     // SETTINGS UI
+843 5                     Column(
+844 5                         modifier = Modifier
+845 5                             .fillMaxSize()
+846 5                             .padding(16.dp)
+847 6                     ) {
+848 6                         Text(
+849 6                             "Settings",
+850 6                             fontSize = 24.sp,
+851 6                             fontWeight = FontWeight.Bold,
+852 6                             color = Color(0xFF001D35)
+853 6                         )
+854 6                         Spacer(Modifier.height(24.dp))
+855 6                         
+856 6                         Card(
+857 6                             colors = CardDefaults.cardColors(containerColor = Color.White),
+858 6                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+859 6                             shape = RoundedCornerShape(12.dp),
+860 6                             modifier = Modifier.fillMaxWidth()
+861 7                         ) {
+862 8                             Column(modifier = Modifier.padding(16.dp)) {
+863 9                                 Row(verticalAlignment = Alignment.CenterVertically) {
+864 9                                     Icon(Icons.Default.Notifications, contentDescription = null, tint = ArhamPrimary)
+865 9                                     Spacer(Modifier.width(16.dp))
+866 10                                     Column(modifier = Modifier.weight(1f)) {
+867 10                                         Text("Push Notifications", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+868 10                                         Text("Receive alerts for new vacancies", fontSize = 12.sp, color = Color(0xFF64748B))
+869 9                                     }
+870 9                                     Switch(
+871 9                                         checked = true,
+872 9                                         onCheckedChange = { /* Toggle */ }
+873 9                                     )
+874 8                                 }
+875 8                                 
+876 8                                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFF1F5F9))
+877 8                                 
+878 9                                 Row(verticalAlignment = Alignment.CenterVertically) {
+879 9                                     Icon(Icons.Default.DarkMode, contentDescription = null, tint = ArhamPrimary)
+880 9                                     Spacer(Modifier.width(16.dp))
+881 10                                     Column(modifier = Modifier.weight(1f)) {
+882 10                                         Text("Dark Mode", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+883 10                                         Text("Switch to dark theme", fontSize = 12.sp, color = Color(0xFF64748B))
+884 9                                     }
+885 9                                     Switch(
+886 9                                         checked = false,
+887 9                                         onCheckedChange = { /* Toggle */ }
+888 9                                     )
+889 8                                 }
+890 8                                 
+891 8                                 HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color(0xFFF1F5F9))
+892 8                                 
+893 9                                 Row(verticalAlignment = Alignment.CenterVertically) {
+894 9                                     Icon(Icons.Default.Security, contentDescription = null, tint = ArhamPrimary)
+895 9                                     Spacer(Modifier.width(16.dp))
+896 10                                     Column(modifier = Modifier.weight(1f)) {
+897 10                                         Text("Privacy Policy", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+898 10                                         Text("Manage your data and privacy", fontSize = 12.sp, color = Color(0xFF64748B))
+899 9                                     }
+900 8                                 }
+901 7                             }
+902 6                         }
+903 6                         
+904 6                         Spacer(Modifier.height(24.dp))
+905 6                         
+906 6                         Button(
+907 6                             onClick = { /* Sign out */ },
+908 6                             modifier = Modifier.fillMaxWidth().height(56.dp),
+909 6                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFEE2E2)),
+910 6                             shape = RoundedCornerShape(12.dp)
+911 7                         ) {
+912 7                             Text("Sign Out", color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+913 6                         }
+914 5                     }
+915 4                 }
+916 4 
+917 5                 3 -> {
+918 5                     // Insights / Dashboard
+919 5                     LazyColumn(
+920 5                         modifier = Modifier
+921 5                             .fillMaxSize()
+922 5                             .padding(16.dp),
+923 5                         verticalArrangement = Arrangement.spacedBy(16.dp)
+924 6                     ) {
+925 7                         item {
+926 7                             Text(
+927 7                                 "Vacancy Trends",
+928 7                                 fontSize = 24.sp,
+929 7                                 fontWeight = FontWeight.Bold,
+930 7                                 color = Color(0xFF001D35)
+931 7                             )
+932 7                             Text(
+933 7                                 "Last 24 hours seat availability by region",
+934 7                                 fontSize = 12.sp,
+935 7                                 color = Color(0xFF64748B)
+936 7                             )
+937 6                         }
+938 6                         
+939 7                         item {
+940 7                             // Card with Line Chart
+941 7                             Card(
+942 7                                 colors = CardDefaults.cardColors(containerColor = Color.White),
+943 7                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+944 7                                 shape = RoundedCornerShape(12.dp),
+945 7                                 modifier = Modifier.fillMaxWidth().height(300.dp)
+946 8                             ) {
+947 9                                 Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+948 9                                     Text("Engineering Seats (Karnataka)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+949 9                                     Spacer(Modifier.height(16.dp))
+950 9                                     
+951 9                                     val model = remember { entryModelOf(45f, 32f, 20f, 15f, 18f, 10f, 4f) }
+952 9                                     Chart(
+953 9                                         chart = lineChart(),
+954 9                                         model = model,
+955 9                                         startAxis = rememberStartAxis(),
+956 9                                         bottomAxis = rememberBottomAxis(),
+957 9                                         modifier = Modifier.fillMaxSize()
+958 9                                     )
+959 8                                 }
+960 7                             }
+961 6                         }
+962 6                         
+963 7                         item {
+964 7                             // Card with Column Chart
+965 7                             Card(
+966 7                                 colors = CardDefaults.cardColors(containerColor = Color.White),
+967 7                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+968 7                                 shape = RoundedCornerShape(12.dp),
+969 7                                 modifier = Modifier.fillMaxWidth().height(300.dp)
+970 8                             ) {
+971 9                                 Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+972 9                                     Text("Top Universities Demand", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+973 9                                     Spacer(Modifier.height(16.dp))
+974 9                                     
+975 9                                     val columnModel = remember { entryModelOf(120f, 90f, 60f, 45f) }
+976 9                                     Chart(
+977 9                                         chart = columnChart(),
+978 9                                         model = columnModel,
+979 9                                         startAxis = rememberStartAxis(),
+980 9                                         bottomAxis = rememberBottomAxis(),
+981 9                                         modifier = Modifier.fillMaxSize()
+982 9                                     )
+983 8                                 }
+984 7                             }
+985 6                         }
+986 5                     }
+987 4                 }
+988 3             }
+989 2         }
+990 1     }
+991 1 
+992 1     // Compare Bottom Sheet
+993 2     if (showCompareSheet) {
+994 2         ModalBottomSheet(
+995 2             onDismissRequest = { showCompareSheet = false },
+996 2             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+997 3         ) {
+998 3             Column(
+999 3                 modifier = Modifier
+1000 3                     .fillMaxWidth()
+1001 3                     .padding(16.dp)
+1002 4             ) {
+1003 4                 Text("Compare Colleges", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF001D35))
+1004 4                 Spacer(Modifier.height(16.dp))
+1005 4                 LazyRow(
+1006 4                     horizontalArrangement = Arrangement.spacedBy(16.dp)
+1007 5                 ) {
+1008 6                     items(selectedForComparison.toList(), key = { it.id }) { vacancy ->
+1009 6                         Card(
+1010 6                             colors = CardDefaults.cardColors(containerColor = Color.White),
+1011 6                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+1012 6                             shape = RoundedCornerShape(12.dp),
+1013 6                             modifier = Modifier.width(240.dp)
+1014 7                         ) {
+1015 8                             Column(modifier = Modifier.padding(16.dp)) {
+1016 8                                 Text(vacancy.universityName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+1017 8                                 Text("${vacancy.city}, ${vacancy.locationState}", fontSize = 12.sp, color = Color(0xFF64748B))
+1018 8                                 Spacer(Modifier.height(12.dp))
+1019 8                                 
+1020 8                                 Text("COURSE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+1021 8                                 Text(vacancy.courseName, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF334155))
+1022 8                                 Spacer(Modifier.height(12.dp))
+1023 8                                 
+1024 8                                 Text("FEE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+1025 8                                 Text("₹${vacancy.annualFeeInLakhs} L/year", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF334155))
+1026 8                                 Spacer(Modifier.height(12.dp))
+1027 8                                 
+1028 8                                 Text("ELIGIBILITY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+1029 8                                 Text("${vacancy.normalizedScoreRequired}% (${vacancy.scoreExamType})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF0061A4))
+1030 8                                 Spacer(Modifier.height(12.dp))
+1031 8                                 
+1032 8                                 Text("AVAILABLE SEATS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+1033 8                                 Text("${vacancy.remainingSeats}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (vacancy.remainingSeats < 5) Color(0xFFDC2626) else Color(0xFF065F46))
+1034 7                             }
+1035 6                         }
+1036 5                     }
+1037 4                 }
+1038 4                 Spacer(Modifier.height(32.dp))
+1039 3             }
+1040 2         }
+1041 1     }
+1042 1 
+1043 1     // Seat Claim Dialog
+1044 2     activeClaimVacancy?.let { vacancy ->
+1045 2         AlertDialog(
+1046 2             onDismissRequest = { activeClaimVacancy = null },
+1047 2             icon = { Icon(Icons.Default.LockClock, contentDescription = null, tint = ArhamAccent) },
+1048 2             title = { Text("Atomic Seat Lock (10 Min)") },
+1049 3             text = {
+1050 4                 Column {
+1051 4                     Text(
+1052 4                         "You are locking 1 seat in ${vacancy.courseName} at ${vacancy.universityName}.",
+1053 4                         fontSize = 13.sp
+1054 4                     )
+1055 4                     Spacer(Modifier.height(8.dp))
+1056 4                     Surface(
+1057 4                         color = MaterialTheme.colorScheme.surfaceVariant,
+1058 4                         shape = RoundedCornerShape(8.dp)
+1059 5                     ) {
+1060 6                         Column(modifier = Modifier.padding(8.dp)) {
+1061 6                             Text("DigiLocker Score: ${userCuetScore} Percentile", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+1062 6                             Text("Cutoff Score: ${vacancy.cutOffScore} Percentile", fontSize = 11.sp)
+1063 6                             Text("Status: ELIGIBLE VIA AUTOMATED NORMALIZATION", fontSize = 11.sp, color = ArhamSuccess, fontWeight = FontWeight.Bold)
+1064 5                         }
+1065 4                     }
+1066 4                     Spacer(Modifier.height(8.dp))
+1067 4                     Text(
+1068 4                         "Once locked via Upstash Redis concurrency queue, you will have 10 minutes to complete the Razorpay UPI clearing fee payment.",
+1069 4                         fontSize = 11.sp,
+1070 4                         color = MaterialTheme.colorScheme.onSurfaceVariant
+1071 4                     )
+1072 3                 }
+1073 2             },
+1074 3             confirmButton = {
+1075 3                 Button(
+1076 4                     onClick = {
+1077 4                         Toast.makeText(context, "Seat locked! 10-minute payment timer started.", Toast.LENGTH_LONG).show()
+1078 4                         activeClaimVacancy = null
+1079 3                     },
+1080 3                     modifier = Modifier.testTag("confirm_claim_seat")
+1081 4                 ) {
+1082 4                     Text("Proceed to Razorpay UPI")
+1083 3                 }
+1084 2             },
+1085 3             dismissButton = {
+1086 4                 TextButton(onClick = { activeClaimVacancy = null }) {
+1087 4                     Text("Cancel")
+1088 3                 }
+1089 2             }
+1090 2         )
+1091 1     }
+1092 0 }@Composable
+1093 0 fun VacancyCardItem(
+1094 0     vacancy: VacancyItem,
+1095 0     userScore: Double,
+1096 0     isUserVerified: Boolean,
+1097 0     onClaimClick: () -> Unit,
+1098 0     isSelectedForCompare: Boolean = false,
+1099 0     onToggleCompare: (Boolean) -> Unit = {}
+1100 1 ) {
+1101 1     val isEligible = userScore >= vacancy.normalizedScoreRequired
+1102 1     
+1103 1     var currentSeats by remember { mutableIntStateOf(vacancy.remainingSeats) }
+1104 1     
+1105 1     // Simulate Supabase Realtime Subscription updates
+1106 2     LaunchedEffect(vacancy.id) {
+1107 2         kotlinx.coroutines.delay((2000L..10000L).random())
+1108 3         while(currentSeats > 0) {
+1109 3             currentSeats -= 1
+1110 3             kotlinx.coroutines.delay((5000L..25000L).random())
+1111 2         }
+1112 1     }
+1113 1     
+1114 1     val isUrgentSeats = currentSeats < 5
+1115 1 
+1116 1     // Blinking animation for Realtime Indicator
+1117 1     val infiniteTransition = rememberInfiniteTransition()
+1118 1     val alpha by infiniteTransition.animateFloat(
+1119 1         initialValue = 1f,
+1120 1         targetValue = 0.3f,
+1121 1         animationSpec = infiniteRepeatable(
+1122 1             animation = tween(800, easing = LinearEasing),
+1123 1             repeatMode = RepeatMode.Reverse
+1124 1         )
+1125 1     )
+1126 1 
+1127 1     Card(
+1128 1         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+1129 1         colors = CardDefaults.cardColors(containerColor = Color.White),
+1130 1         shape = RoundedCornerShape(20.dp),
+1131 1         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+1132 1         modifier = Modifier
+1133 1             .fillMaxWidth()
+1134 1             .testTag("vacancy_card_${vacancy.id}")
+1135 2     ) {
+1136 3         Column(modifier = Modifier.padding(16.dp)) {
+1137 3             Row(
+1138 3                 modifier = Modifier.fillMaxWidth(),
+1139 3                 horizontalArrangement = Arrangement.SpaceBetween,
+1140 3                 verticalAlignment = Alignment.Top
+1141 4             ) {
+1142 5                 Column(modifier = Modifier.weight(1f)) {
+1143 5                     Text(
+1144 5                         text = vacancy.universityName,
+1145 5                         fontWeight = FontWeight.Bold,
+1146 5                         fontSize = 16.sp,
+1147 5                         color = Color(0xFF0F172A),
+1148 5                         maxLines = 1,
+1149 5                         overflow = TextOverflow.Ellipsis
+1150 5                     )
+1151 5                     Spacer(Modifier.height(2.dp))
+1152 6                     Row(verticalAlignment = Alignment.CenterVertically) {
+1153 6                         Icon(
+1154 6                             Icons.Default.LocationOn,
+1155 6                             contentDescription = null,
+1156 6                             modifier = Modifier.size(14.dp),
+1157 6                             tint = Color(0xFF64748B)
+1158 6                         )
+1159 6                         Spacer(Modifier.width(2.dp))
+1160 6                         Text(
+1161 6                             text = "${vacancy.city}, ${vacancy.locationState}",
+1162 6                             fontSize = 12.sp,
+1163 6                             color = Color(0xFF64748B)
+1164 6                         )
+1165 5                     }
+1166 4                 }
+1167 4                 
+1168 4                 Spacer(Modifier.width(8.dp))
+1169 4                 // Eligibility / Verification Pill
+1170 4                 Surface(
+1171 4                     shape = RoundedCornerShape(8.dp),
+1172 4                     color = Color(0xFFEFF6FF)
+1173 5                 ) {
+1174 5                     Column(
+1175 5                         horizontalAlignment = Alignment.CenterHorizontally,
+1176 5                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+1177 6                     ) {
+1178 6                         Text(
+1179 6                             "ELIGIBILITY",
+1180 6                             fontSize = 9.sp,
+1181 6                             fontWeight = FontWeight.Bold,
+1182 6                             color = Color(0xFF0061A4),
+1183 6                             letterSpacing = 0.5.sp
+1184 6                         )
+1185 6                         Text(
+1186 6                             "${vacancy.normalizedScoreRequired}%",
+1187 6                             fontSize = 12.sp,
+1188 6                             fontWeight = FontWeight.Black,
+1189 6                             color = Color(0xFF001D35)
+1190 6                         )
+1191 5                     }
+1192 4                 }
+1193 3             }
+1194 3             Spacer(Modifier.height(12.dp))
+1195 3             Row(
+1196 3                 modifier = Modifier.fillMaxWidth(),
+1197 3                 horizontalArrangement = Arrangement.SpaceBetween,
+1198 3                 verticalAlignment = Alignment.Bottom
+1199 4             ) {
+1200 5                 Column(modifier = Modifier.weight(1f)) {
+1201 5                     Text(
+1202 5                         text = "COURSE",
+1203 5                         fontSize = 10.sp,
+1204 5                         fontWeight = FontWeight.Bold,
+1205 5                         color = Color(0xFF94A3B8),
+1206 5                         letterSpacing = 0.5.sp
+1207 5                     )
+1208 5                     Text(
+1209 5                         text = vacancy.courseName,
+1210 5                         fontWeight = FontWeight.Bold,
+1211 5                         fontSize = 14.sp,
+1212 5                         color = Color(0xFF334155)
+1213 5                     )
+1214 5                     Spacer(Modifier.height(4.dp))
+1215 5                     Text(
+1216 5                         text = "Annual Fee: ₹${vacancy.annualFeeInLakhs} L • Exam: ${vacancy.scoreExamType}",
+1217 5                         fontSize = 11.sp,
+1218 5                         color = Color(0xFF64748B)
+1219 5                     )
+1220 4                 }
+1221 4                 Spacer(Modifier.width(8.dp))
+1222 5                 Column(horizontalAlignment = Alignment.End) {
+1223 5                     // Real-Time Supabase Indicator
+1224 5                     Row(
+1225 5                         verticalAlignment = Alignment.CenterVertically,
+1226 5                         modifier = Modifier.padding(bottom = 2.dp)
+1227 6                     ) {
+1228 6                         Box(
+1229 6                             modifier = Modifier
+1230 6                                 .size(6.dp)
+1231 6                                 .clip(CircleShape)
+1232 6                                 .background(Color(0xFF10B981).copy(alpha = alpha))
+1233 6                         )
+1234 6                         Spacer(Modifier.width(4.dp))
+1235 6                         Text(
+1236 6                             text = "Live Sync",
+1237 6                             fontSize = 9.sp,
+1238 6                             fontWeight = FontWeight.Bold,
+1239 6                             color = Color(0xFF10B981).copy(alpha = alpha)
+1240 6                         )
+1241 5                     }
+1242 5                     // Remaining Seats Indicator
+1243 5                     Row(
+1244 5                         verticalAlignment = Alignment.CenterVertically,
+1245 5                         modifier = Modifier.padding(bottom = 6.dp)
+1246 6                     ) {
+1247 7                         if (isUrgentSeats) {
+1248 7                             Icon(
+1249 7                                 Icons.Default.Timer,
+1250 7                                 contentDescription = null,
+1251 7                                 tint = Color(0xFFDC2626),
+1252 7                                 modifier = Modifier.size(14.dp)
+1253 7                             )
+1254 7                             Spacer(Modifier.width(2.dp))
+1255 7                             Text(
+1256 7                                 text = "$currentSeats SEATS LEFT",
+1257 7                                 fontSize = 11.sp,
+1258 7                                 fontWeight = FontWeight.Bold,
+1259 7                                 color = Color(0xFFDC2626)
+1260 7                             )
+1261 7                         } else {
+1262 7                             Text(
+1263 7                                 text = "$currentSeats Seats Available",
+1264 7                                 fontSize = 11.sp,
+1265 7                                 fontWeight = FontWeight.SemiBold,
+1266 7                                 color = Color(0xFF64748B)
+1267 7                             )
+1268 6                         }
+1269 6                         Spacer(Modifier.width(8.dp))
+1270 6                         
+1271 6                         var isSubscribed by remember { mutableStateOf(false) }
+1272 6                         val context = LocalContext.current
+1273 6                         
+1274 6                         IconButton(
+1275 7                             onClick = { 
+1276 7                                 isSubscribed = !isSubscribed
+1277 7                                 val topic = "vacancy_${vacancy.id}"
+1278 8                                 if (isSubscribed) {
+1279 8                                     com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic(topic)
+1280 9                                         .addOnCompleteListener { task ->
+1281 9                                             var msg = "Subscribed to ${vacancy.courseName} alerts!"
+1282 9                                             if (!task.isSuccessful) msg = "Subscription failed"
+1283 9                                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+1284 8                                         }
+1285 8                                 } else {
+1286 8                                     com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
+1287 9                                         .addOnCompleteListener { task ->
+1288 9                                             var msg = "Unsubscribed from alerts"
+1289 9                                             if (!task.isSuccessful) msg = "Unsubscription failed"
+1290 9                                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+1291 8                                         }
+1292 7                                 }
+1293 6                             },
+1294 6                             modifier = Modifier.size(24.dp)
+1295 7                         ) {
+1296 7                             Icon(
+1297 7                                 imageVector = if (isSubscribed) Icons.Filled.NotificationsActive else Icons.Outlined.Notifications,
+1298 7                                 contentDescription = "Subscribe to alerts",
+1299 7                                 tint = if (isSubscribed) ArhamPrimary else Color(0xFF64748B),
+1300 7                                 modifier = Modifier.size(18.dp)
+1301 7                             )
+1302 6                         }
+1303 5                     }
+1304 5 
+1305 6                     Row(verticalAlignment = Alignment.CenterVertically) {
+1306 7                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onToggleCompare(!isSelectedForCompare) }) {
+1307 7                             Checkbox(
+1308 7                                 checked = isSelectedForCompare,
+1309 7                                 onCheckedChange = onToggleCompare,
+1310 7                                 colors = CheckboxDefaults.colors(checkedColor = ArhamPrimary)
+1311 7                             )
+1312 7                             Text("Compare", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF64748B))
+1313 6                         }
+1314 6                         Spacer(Modifier.width(8.dp))
+1315 6                         Button(
+1316 6                             onClick = onClaimClick,
+1317 6                             enabled = isEligible && isUserVerified,
+1318 6                             colors = ButtonDefaults.buttonColors(
+1319 6                                 containerColor = Color(0xFF0061A4),
+1320 6                                 contentColor = Color.White,
+1321 6                                 disabledContainerColor = Color(0xFFE2E8F0),
+1322 6                                 disabledContentColor = Color(0xFF94A3B8)
+1323 6                             ),
+1324 6                             shape = RoundedCornerShape(12.dp),
+1325 6                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+1326 6                             modifier = Modifier.testTag("claim_seat_button_${vacancy.id}")
+1327 7                         ) {
+1328 7                             Text(
+1329 7                                 text = if (!isUserVerified) "Verify First" else if (!isEligible) "Ineligible" else "CLAIM SEAT",
+1330 7                                 fontSize = 11.sp,
+1331 7                                 fontWeight = FontWeight.Bold,
+1332 7                                 letterSpacing = 0.5.sp
+1333 7                             )
+1334 6                         }
+1335 5                     }
+1336 4                 }
+1337 3             }
+1338 2         }
+1339 1     }
+1340 0 }
+1341 0 
+1342 0 @Composable
+1343 1 fun DigiLockerDocRow(title: String, subtitle: String, verified: Boolean) {
+1344 1     Row(
+1345 1         modifier = Modifier.fillMaxWidth(),
+1346 1         horizontalArrangement = Arrangement.SpaceBetween,
+1347 1         verticalAlignment = Alignment.CenterVertically
+1348 2     ) {
+1349 3         Column {
+1350 3             Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+1351 3             Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+1352 2         }
+1353 3         if (verified) {
+1354 3             Surface(
+1355 3                 color = Color(0xFFD1FAE5),
+1356 3                 shape = RoundedCornerShape(4.dp)
+1357 4             ) {
+1358 4                 Text(
+1359 4                     "Verified",
+1360 4                     fontSize = 10.sp,
+1361 4                     fontWeight = FontWeight.Bold,
+1362 4                     color = Color(0xFF065F46),
+1363 4                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+1364 4                 )
+1365 3             }
+1366 2         }
+1367 1     }
+1368 0 }
+1369 0 
+1370 -1 }
